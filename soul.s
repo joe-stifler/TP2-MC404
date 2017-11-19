@@ -179,7 +179,6 @@ IRQ_HANDLER:
 
     blge RUN_CALLBACK               @ E em caso de ter se passado DIST_INTERVAL
                                     @   ciclos, verifica o estado dos sonares
-
     pop {r0, r1, lr}
     movs pc, lr                     @ retorna ao estado antigo
 
@@ -226,7 +225,7 @@ SVC_HANDLER:
 MUDA_MODO1:
     ldr r1, =TEMPO_DIFERENTE
     cmp r7, r1
-    msreq CPSR_c, #0x12             @ Volta pro modo irq
+    msreq CPSR_c, #0x12             @ Volta pro modo irq com interrupcoes
     beq TEMPO_DIFERENTE
 
     mov pc, lr
@@ -234,7 +233,7 @@ MUDA_MODO1:
 MUDA_MODO2:
     ldr r1, =ATUALIZA_INDICES_CALLBACK
     cmp r7, r1
-    msreq CPSR_c, #0xD2             @ Volta pro modo irq
+    msreq CPSR_c, #0xD2             @ Volta pro modo irq com interrupcoes
     beq ATUALIZA_INDICES_CALLBACK
 
     mov pc, lr
@@ -310,7 +309,7 @@ REGISTER_PROXIMITY_CALLBACK:
     push {r3-r5}
 
     ldr r3, =MAX_CALLBACKS
-    ldr r4, =CONTADOR_CALLBACK
+    ldr r4, =NUM_CALLBACKS
     ldr r5, [r4]
 
     cmp r5, r3
@@ -482,18 +481,19 @@ SET_ALARM:
 
     @ procurando a primeira pos livre do vetor
     ALARM_LOOP:
-		cmp r2, #8
+        ldr r5, =MAX_ALARMS
+		cmp r2, r5
 		bge ALARM_FIM_LOOP
 
-		ldr r5, [r4] 		@ FLAG_ALARMS[n*4]
+		ldr r5, [r4] 		       @ FLAG_ALARMS[n*4]
 		cmp r5, #0
 		bne POS_CHEIA
 
 		@ encontrada posicao livre, preenchendo os vetores
 		mov r5, #1
-		str r5, [r4] 		@ FLAG_ALARMS[n*4] <- 1
-		str r0, [r6] 		@ FUNC_ALARMS[n*4] <- r0
-		str r1, [r3] 		@ TIME_ALARMS[n*4] <- r1
+		str r5, [r4] 		       @ FLAG_ALARMS[n*4] <- 1
+		str r0, [r6] 		       @ FUNC_ALARMS[n*4] <- r0
+		str r1, [r3] 		       @ TIME_ALARMS[n*4] <- r1
 		b ALARM_FIM_LOOP
 
 		POS_CHEIA:
@@ -504,7 +504,7 @@ SET_ALARM:
     		b ALARM_LOOP
 
     ALARM_FIM_LOOP:
-        mov r0, #0                      @ Indica que nenhum erro ocorreu
+        mov r0, #0                 @ Indica que nenhum erro ocorreu
 
 	SET_ALARM_EXIT:
         pop {r1-r6, lr}
@@ -521,7 +521,8 @@ RUN_ALARM:
 	ldr r4, [r4] @ r4 <- tempo do sistema
 
 	RUN_ALARM_LOOP:
-		cmp r3, #8
+        ldr r5, =MAX_ALARMS
+		cmp r3, r5
 		bge FIM_RUN_LOOP
 
 		ldr r5, [r0, r3, lsl #2]    @ r5 <- TIME_ALARMS[n*4]
@@ -535,7 +536,7 @@ RUN_ALARM:
 		str r5, [r1, r3, lsl #2]    @ FUNC_ALARMS[n*4] <- LIVRE
 		str r5, [r0, r3, lsl #2]    @ TIME_ALARMS[n*4] <- LIVRE
 
-        @ Atualiza numero de alarmes
+        @ Atualiza numero de alarmes ativos
         ldr r5, =NUM_ALARMS
         ldr r7, [r5]
         sub r7, r7, #1
@@ -578,6 +579,12 @@ RUN_CALLBACK:
         ldr r2, [r5, #8]            @ Carrega em r2 o endereco da funcao
         mov r0, #-1
         str r0, [r5]                @ Desativa callback
+
+        ldr r0, =NUM_CALLBACKS
+        ldr r7, [r0]
+        sub r7, r7, #1
+        str r7, [r0]                @ Atualiza a quantidade de callbacks ativas
+
         msr CPSR_c, #0xD0           @ Muda modo para usuario sem interrupcoes
         blx r2                      @ E salta para o endereco da respectiva funcao
 
@@ -602,18 +609,18 @@ RUN_CALLBACK:
     CONTADOR: .space 4
     CONTADOR_CALLBACK: .space 4
 
-    NUM_ALARMS: .space 4            @ Numero de alarmes ativos, sendo inicialmente 0
-	FLAG_ALARMS: .space 32			@ flag_alarms[i] informa a existencia de um alarme
-    TIME_ALARMS: .space 32      	@ time_alarms[i] contem o tempo que o alarme deve ser ativado
-    FUNC_ALARMS: .space 32			@ func_alarms[i] contem o endereco da funcao associada ao alarme
+    NUM_ALARMS: .space 4            @ Numero de alarmes ativos (inicialmente 0). Suporta athe 13 alarmes
+	FLAG_ALARMS: .space 52			@ flag_alarms[i] informa a existencia de um alarme
+    TIME_ALARMS: .space 52      	@ time_alarms[i] contem o tempo que o alarme deve ser ativado
+    FUNC_ALARMS: .space 52			@ func_alarms[i] contem o endereco da funcao associada ao alarme
 
-    NUM_CALLBACKS: .space 4
-    VEC_CALLBACK: .space 105        @ vec_callback[i][0] <- id do sonar, -1 para linha i vazia
+    NUM_CALLBACKS: .space 4         @ Numero de callbacks ativas (inicialmente 0). Suporta athe 13 callbacks
+    VEC_CALLBACK: .space 156        @ vec_callback[i][0] <- id do sonar, -1 para linha i vazia
                                     @ vec_callback[i][1] <- limiar de distancia
                                     @ vec_callback[i][2] <- ponteiro para funcao a ser chamada
 
-    .space 100
-    INICIO_PILHA_SVC:   .space 100
-    INICIO_PILHA_IRQ:   .space 100
-    INICIO_PILHA_FIQ:   .space 100
+    .space 500
+    INICIO_PILHA_SVC:   .space 500
+    INICIO_PILHA_IRQ:   .space 500
+    INICIO_PILHA_FIQ:   .space 500
     INICIO_PILHA_USER:  .space 1

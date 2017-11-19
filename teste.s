@@ -21,9 +21,15 @@ _start:
 	sub	sp, sp, #8
 	str	r0, [fp, #-8]
 	str	r1, [fp, #-12]
-	ldr	r0, .L3
-	mov	r1, #1000
-	bl	add_alarm
+	mov	r0, #3
+	mov	r1, #800
+	ldr	r2, .L3
+	bl	register_proximity_callback
+	mov	r0, #4
+	mov	r1, #800
+	ldr	r2, .L3+4
+	bl	register_proximity_callback
+	bl	setMot2
 	mov	r3, #0
 	mov	r0, r3
 	sub	sp, fp, #4
@@ -32,80 +38,93 @@ _start:
 	.align	2
 .L3:
 	.word	setMot0
+	.word	setMot1
 	.size	_start, .-_start
 	.align	2
 	.global	setMot0
 	.type	setMot0, %function
 setMot0:
-	@ args = 0, pretend = 0, frame = 16
+	@ args = 0, pretend = 0, frame = 8
 	@ frame_needed = 1, uses_anonymous_args = 0
 	stmfd	sp!, {fp, lr}
 	add	fp, sp, #4
-	sub	sp, sp, #16
+	sub	sp, sp, #8
 	mov	r3, #0
 	strb	r3, [fp, #-8]
-	mov	r3, #30
+	mov	r3, #0
 	strb	r3, [fp, #-7]
 	mov	r3, #1
 	strb	r3, [fp, #-12]
-	mov	r3, #0
+	mov	r3, #10
 	strb	r3, [fp, #-11]
 	sub	r2, fp, #8
 	sub	r3, fp, #12
 	mov	r0, r2
 	mov	r1, r3
 	bl	set_motors_speed
-	sub	r3, fp, #16
-	mov	r0, r3
-	bl	get_time
-	ldr	r3, [fp, #-16]
-	add	r3, r3, #800
-	ldr	r0, .L7
-	mov	r1, r3
-	bl	add_alarm
+.L6:
+	mov	r0, #3
+	bl	read_sonar
+	mov	r3, r0
+	mov	r2, r3
+	ldr	r3, .L8
+	cmp	r2, r3
+	bls	.L6
+	bl	setMot2
+	mov	r0, #3
+	mov	r1, #800
+	ldr	r2, .L8+4
+	bl	register_proximity_callback
 	sub	sp, fp, #4
 	ldmfd	sp!, {fp, pc}
-.L8:
+.L9:
 	.align	2
-.L7:
-	.word	setMot1
+.L8:
+	.word	799
+	.word	setMot0
 	.size	setMot0, .-setMot0
 	.align	2
 	.global	setMot1
 	.type	setMot1, %function
 setMot1:
-	@ args = 0, pretend = 0, frame = 16
+	@ args = 0, pretend = 0, frame = 8
 	@ frame_needed = 1, uses_anonymous_args = 0
 	stmfd	sp!, {fp, lr}
 	add	fp, sp, #4
-	sub	sp, sp, #16
+	sub	sp, sp, #8
 	mov	r3, #0
 	strb	r3, [fp, #-8]
-	mov	r3, #0
+	mov	r3, #10
 	strb	r3, [fp, #-7]
 	mov	r3, #1
 	strb	r3, [fp, #-12]
-	mov	r3, #30
+	mov	r3, #0
 	strb	r3, [fp, #-11]
 	sub	r2, fp, #8
 	sub	r3, fp, #12
 	mov	r0, r2
 	mov	r1, r3
 	bl	set_motors_speed
-	sub	r3, fp, #16
-	mov	r0, r3
-	bl	get_time
-	ldr	r3, [fp, #-16]
-	add	r3, r3, #800
-	ldr	r0, .L11
-	mov	r1, r3
-	bl	add_alarm
+.L11:
+	mov	r0, #4
+	bl	read_sonar
+	mov	r3, r0
+	mov	r2, r3
+	ldr	r3, .L13
+	cmp	r2, r3
+	bls	.L11
+	bl	setMot2
+	mov	r0, #4
+	mov	r1, #800
+	ldr	r2, .L13+4
+	bl	register_proximity_callback
 	sub	sp, fp, #4
 	ldmfd	sp!, {fp, pc}
-.L12:
+.L14:
 	.align	2
-.L11:
-	.word	setMot0
+.L13:
+	.word	799
+	.word	setMot1
 	.size	setMot1, .-setMot1
 	.align	2
 	.global	setMot2
