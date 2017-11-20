@@ -2,13 +2,13 @@
 @ Secao de constantes
 
 @ Constante para os ciclos do relogio de perifeİricos
-.set TIME_SZ,                       0x00000064
+.set TIME_SZ,                       350
 
 @ Constante para o intervalo entre as verificacoes do estado dos sonares
 .set DIST_INTERVAL,                 100
 
 @ Constante utilizada no delay do processo de leitura dos sonares
-.set DELAY_READ_SONAR,              0x00001200
+.set DELAY_READ_SONAR,              800
 
 @ Constantes referentes a maxima quantidade de alarmes e callbacks
 .set MAX_ALARMS,                    0x00000008
