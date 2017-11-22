@@ -2,13 +2,13 @@
 @ Secao de constantes
 
 @ Constante para os ciclos do relogio de perifeİricos
-.set TIME_SZ,                       350
+.set TIME_SZ,                       200
 
 @ Constante para o intervalo entre as verificacoes do estado dos sonares
 .set DIST_INTERVAL,                 100
 
 @ Constante utilizada no delay do processo de leitura dos sonares
-.set DELAY_READ_SONAR,              800
+.set DELAY_READ_SONAR,              1800
 
 @ Constantes referentes a maxima quantidade de alarmes e callbacks
 .set MAX_ALARMS,                    0x00000008
@@ -153,7 +153,7 @@ SET_GPIO:
 
 IRQ_HANDLER:
     sub	lr, lr, #4                  @ Recupera valor correto de pc
-    push {r0, r1, lr}
+    push {r0-r10, lr}
 
     ldr r1, =GPT_SR
     mov r0, #1                      @ Indica para o GPT, pelo registrador de status
@@ -176,11 +176,12 @@ IRQ_HANDLER:
     movge r0, #0                    @ Neste caso, zera contador dos ciclos de distancia
     addlt r0, r0, #1                @ Do contrario, incrementa contador
     str r0, [r1]                    @ Atualiza valor do contador_callback de qualquer forma
-
     blge RUN_CALLBACK               @ E em caso de ter se passado DIST_INTERVAL
                                     @   ciclos, verifica o estado dos sonares
-    pop {r0, r1, lr}
-    movs pc, lr                     @ retorna ao estado antigo
+
+    END_IRQ:
+        pop {r0-r10, lr}
+        movs pc, lr                     @ retorna ao estado antigo
 
 SVC_HANDLER:
     cmp r7, #1                      @ Verifica chamada de syscall do pelo proprio S.O.
@@ -233,7 +234,7 @@ MUDA_MODO1:
 MUDA_MODO2:
     ldr r1, =ATUALIZA_INDICES_CALLBACK
     cmp r7, r1
-    msreq CPSR_c, #0xD2             @ Volta pro modo irq com interrupcoes
+    msreq CPSR_c, #0x12             @ Volta pro modo irq com interrupcoes
     beq ATUALIZA_INDICES_CALLBACK
 
     mov pc, lr
@@ -558,13 +559,18 @@ RUN_ALARM:
     	mov pc, lr
 
 RUN_CALLBACK:
-    push {r0-r5, r7, lr}
+    push {r0-r7, lr}
 
     ldr r4, =MAX_CALLBACKS
     ldr r5, =VEC_CALLBACK           @ Base do vetor de callback
+
     RUN_CALLBACK_LOOP:
         cmp r4, #0
         ble END_RUN_CALLBACK
+
+        mrs r0, cpsr
+        mrs r1, SPSR
+        push {r0, r1}
 
         ldr r0, [r5]                @ Le o id do sonar
         cmp r0, #-1                 @ Nao analisa posicao vazia
@@ -585,20 +591,25 @@ RUN_CALLBACK:
         sub r7, r7, #1
         str r7, [r0]                @ Atualiza a quantidade de callbacks ativas
 
-        msr CPSR_c, #0xD0           @ Muda modo para usuario sem interrupcoes
+        msr CPSR_c, #0x10           @ Muda modo para usuario sem interrupcoes
         blx r2                      @ E salta para o endereco da respectiva funcao
 
         mov r7, #2                  @ Chama syscall para retornar ao modo irq
         svc 0x0
 
         ATUALIZA_INDICES_CALLBACK:
+            pop {r0, r1}
+
+            msr CPSR, r0
+            msr SPSR, r1
+
             sub r4, r4, #1
             add r5, r5, #12
 
         b RUN_CALLBACK_LOOP
 
     END_RUN_CALLBACK:
-        pop {r0-r5, r7, lr}
+        pop {r0-r7, lr}
         mov pc, lr
 
 @ Secao de dados
