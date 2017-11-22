@@ -48,7 +48,8 @@ set_motors_speed:
 
     svc 0x0
 
-    end_set_motors: pop {r2, r7, pc}
+    end_set_motors:
+        pop {r2, r7, pc}
 
 read_sonar:
     push {r7, lr}
@@ -87,7 +88,8 @@ read_sonars:
         add r4, r4, #1
         b loop
 
-    end_read_sonars: pop {r4, r5, r6, r7, pc}
+    end_read_sonars:
+        pop {r4, r5, r6, r7, pc}
 
 register_proximity_callback:
     push {r7, lr}
@@ -98,12 +100,16 @@ register_proximity_callback:
     pop {r7, pc}
 
 get_time:
-    push {r7, lr}
+    push {r5, r7, lr}
+
+    mov r5, r0
 
     mov r7, #20
     svc 0x0
 
-    pop {r7, pc}
+    str r0, [r5]
+
+    pop {r5, r7, pc}
 
 set_time:
     push {r7, lr}

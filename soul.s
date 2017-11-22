@@ -2,13 +2,13 @@
 @ Secao de constantes
 
 @ Constante para os ciclos do relogio de perifeİricos
-.set TIME_SZ,                       200
+.set TIME_SZ,                       0x000000C8
 
 @ Constante para o intervalo entre as verificacoes do estado dos sonares
-.set DIST_INTERVAL,                 100
+.set DIST_INTERVAL,                 0x00000019
 
 @ Constante utilizada no delay do processo de leitura dos sonares
-.set DELAY_READ_SONAR,              1800
+.set DELAY_READ_SONAR,              0x00000320
 
 @ Constantes referentes a maxima quantidade de alarmes e callbacks
 .set MAX_ALARMS,                    0x00000008
@@ -39,11 +39,11 @@
 _start:
 
 INTERRUPT_VECTOR:
-    .org 0x0
+    .org 0x0                        @ Reset
         b RESET_HANDLER
-    .org 0x08
+    .org 0x08                       @ Software interrupt
         b SVC_HANDLER
-    .org 0x18
+    .org 0x18                       @ IRQ interrupt
         b IRQ_HANDLER
 
 .org 0x100
@@ -78,17 +78,14 @@ RESET_HANDLER:
 
     ldr sp, =INICIO_PILHA_SVC
 
-    msr CPSR_c, #0x12               @ Muda para o modo IRQ
-    ldr sp, =INICIO_PILHA_IRQ       @ Configura inicio da pilha do modo IRQ
-
-    msr CPSR_c, #0x11               @ Muda para o modo FIQ
-    ldr sp, =INICIO_PILHA_FIQ       @ Configura inicio da pilha do modo IRQ
+    msr cpsr_c, #0x12               @ Muda para o modo IRQ
+    ldr sp, =INICIO_PILHA_IRQ       @ Configura inicio da pilha do modo IRQs
 
     bl SET_TZIC                     @ Configura TZIC
     bl SET_GPT                      @ Configura GPT
     bl SET_GPIO                     @ Configura GPIO
 
-    msr CPSR_c, #0x10	            @ Muda para o modo usuario, habilitando interrupcoes
+    msr cpsr_c, #0x10	            @ Muda para o modo usuario, habilitando interrupcoes
     ldr sp, =INICIO_PILHA_USER
 
     ldr r0, =0x77812000             @ .text do codigo usuario deve comecar em 0x77812000
@@ -155,22 +152,23 @@ IRQ_HANDLER:
     sub	lr, lr, #4                  @ Recupera valor correto de pc
     push {r0-r10, lr}
 
+    mrs r4, spsr                    @ Salva o estado atual do registrador SPSR
+    push {r4}
+
     ldr r1, =GPT_SR
     mov r0, #1                      @ Indica para o GPT, pelo registrador de status
     str r0, [r1]                    @ que o processador estah ciente da interrupcao
 
-    @ incrementando relogio do sistema
     ldr r1, =CONTADOR
-    ldr r0, [r1]
-    add r0, r0, #1
-    str r0, [r1]
+    ldr r0, [r1]                    @ Le estado atual do relogio do sistema
+    add r0, r0, #1                  @ Incrementa em uma unidade tal valor
+    str r0, [r1]                    @ E atualiza valor obtido no relogio do sistema
 
     bl RUN_ALARM                    @ Procura alarmes para ativar no tempo incrementado
 
-    @ Incrementa CONTADOR_CALLBACK
     ldr r2, =DIST_INTERVAL
     ldr r1, =CONTADOR_CALLBACK
-    ldr r0, [r1]
+    ldr r0, [r1]                    @ Le valor do estador atual do contador de callbacks
 
     cmp r0, r2                      @ Verifica se jah passou DIST_INTERVAL ciclos
     movge r0, #0                    @ Neste caso, zera contador dos ciclos de distancia
@@ -180,17 +178,24 @@ IRQ_HANDLER:
                                     @   ciclos, verifica o estado dos sonares
 
     END_IRQ:
+        pop {r4}
+        msr spsr, r4                @ Restaura estado anterior do registrador SPSR
+
         pop {r0-r10, lr}
-        movs pc, lr                     @ retorna ao estado antigo
+        movs pc, lr                 @ retorna ao estado antigo
 
 SVC_HANDLER:
-    cmp r7, #1                      @ Verifica chamada de syscall do pelo proprio S.O.
+    cmp r7, #1                      @ Verifica chamada de syscall do pelo proprio S.O. (run_alarm)
     moveq r7, lr
     bleq MUDA_MODO1
 
-    cmp r7, #2                      @ Verifica chamada de syscall do pelo proprio S.O.
+    cmp r7, #2                      @ Verifica chamada de syscall do pelo proprio S.O. (run_callback)
     moveq r7, lr
     bleq MUDA_MODO2
+
+    push {r4}                       @ Armazena registrador r4 na pilha de forma a nao danifica-lo
+    mrs r4, spsr                    @ Salva o estado atual do registrador SPSR
+    push {r4}
 
     cmp r7, #16
     moveq r7, lr
@@ -220,13 +225,16 @@ SVC_HANDLER:
     moveq r7, lr
     bleq SET_ALARM
 
-    movs pc, r7                     @ Retorna ao modo usuario
+    pop {r4}
+    msr spsr, r4                    @ Restaura estado anterior do registrador SPSR
+    pop {r4}                        @ Remove r4 da pilha, armazenado anteriormente
 
+    movs pc, r7                     @ Retorna ao modo anterior a chamada da syscall
 
 MUDA_MODO1:
     ldr r1, =TEMPO_DIFERENTE
     cmp r7, r1
-    msreq CPSR_c, #0x12             @ Volta pro modo irq com interrupcoes
+    msreq cpsr_c, #0x12             @ Volta pro modo irq com interrupcoes
     beq TEMPO_DIFERENTE
 
     mov pc, lr
@@ -234,7 +242,7 @@ MUDA_MODO1:
 MUDA_MODO2:
     ldr r1, =ATUALIZA_INDICES_CALLBACK
     cmp r7, r1
-    msreq CPSR_c, #0x12             @ Volta pro modo irq com interrupcoes
+    msreq cpsr_c, #0x12             @ Volta pro modo irq com interrupcoes
     beq ATUALIZA_INDICES_CALLBACK
 
     mov pc, lr
@@ -286,11 +294,9 @@ READ_SONAR:
         and r2, r2, r0              @ Verifica se o primeiro bit (flag) estah setada
 
         cmp r2, #1
-        ldreq r2, =4095             @ mascara 111111111111
+        ldreq r2, =4095             @ Mascara 111111111111
         andeq r0, r2, r0, lsr #6    @ Desloca conteudo de r0, de forma a
                                     @   ignorar pinos flag, trigger e sonar_mux
-
-        @ Falta aplicar a formula do fabricante time / 58 distance (cm)
 
         beq END_READ_SONAR
 
@@ -314,7 +320,7 @@ REGISTER_PROXIMITY_CALLBACK:
     ldr r5, [r4]
 
     cmp r5, r3
-    movge r0, #-1                   @ Caso limite de callbacks jah tenha
+    movge r0, #-1                   @ Caso limite de callbacks ativas jah tenha
     bge END_REGISTER_CALLBACK       @   sido atingido nao realiza nenhuma acao
 
     cmp r0, #0
@@ -329,14 +335,15 @@ REGISTER_PROXIMITY_CALLBACK:
     str r5, [r4]
 
     ldr r4, =VEC_CALLBACK           @ Base do vetor de callbacks
+
     REGISTER_CALLBACK_LOOP:
         cmp r3, #0
         ble END_REGISTER_CALLBACK
 
         ldr r5, [r4]
         cmp r5, #-1                 @ Caso posicao esteja vazia, armazena nova callback
-        streq r0, [r4]              @ Salva id do sonar a se monitorar
-        streq r1, [r4, #4]          @ Salva seu limiar de distancia
+        streq r0, [r4]              @ Salva id do sonar a se monitorar, vec_callback[indice][0]
+        streq r1, [r4, #4]          @ Salva seu limiar de distancia, vec_callback[indice][1]
         streq r2, [r4, #8]          @ Salva endereco de funcao a se chamar quando atingir limiar
         moveq r0, #0                @ Indica que nenhum erro ocorreu
         beq END_REGISTER_CALLBACK
@@ -430,14 +437,6 @@ SET_MOTORS_SPEED:
     mov pc, lr
 
 GET_TIME:
-    ldr r1, =CONTADOR
-    ldr r1, [r1]
-
-    str r1, [r0]
-
-    mov pc, lr
-
-GET_TIME2:
     ldr r0, =CONTADOR
     ldr r0, [r0]
 
@@ -455,121 +454,134 @@ SET_TIME:
 SET_ALARM:
     push {r1-r6, lr}
 
-    @checando se o tempo eh valido
+    mov r4, r0					    @ Copia do endereco da funcao
+    bl GET_TIME 				    @ Registrador r0 recebe tempo do sistema
 
-    mov r4, r0						@ copia do endereco da funcao
-    bl GET_TIME2 					@ r0 <- tempo do sistema
     cmp r0, r1
-    movhs r0, #-2					@ r0 >= r1
-    bhs SET_ALARM_EXIT
-    mov r0, r4
+    movhs r0, #-2				    @ Caso tempo atual do sistema seja maior ou igual do que r1
+    bhs SET_ALARM_EXIT              @   nao armazena alarme, dando um pulo pro final de set_alarm
+
+    mov r0, r4                      @ Coloca em r0 o endereco da funcao passada por parametro
 
     ldr r3, =MAX_ALARMS
     ldr r4, =NUM_ALARMS
-    ldr r2, [r4]
+    ldr r2, [r4]                    @ Coloca em r2 a quantidade de alarmes atualmente ativos
 
     cmp r2, r3
-    movge r0, #-1                   @ Caso nhumero mhaximo de alarmes jah foi
-    bge SET_ALARM_EXIT              @ atingido, seta -1 em r0 e retorna da syscall,
+    movge r0, #-1                   @ Caso nhumero mhaximo de alarmes ativos jah foi
+    bge SET_ALARM_EXIT              @   atingido, seta -1 em r0 e retorna da syscall
 
-    add r2, r2, #1                  @ sem armazenar novo alarme no vetor de alarmes
-    str r2, [r4]					@ sen�£o, aumenta o contador de alarmes
+    add r2, r2, #1
+    str r2, [r4]				    @ Incrementa nhumero de alarmes ativos atualmente
 
     ldr r3, =TIME_ALARMS
     ldr r4, =FLAG_ALARMS
     ldr r6, =FUNC_ALARMS
     mov r2, #0
 
-    @ procurando a primeira pos livre do vetor
-    ALARM_LOOP:
+    ALARM_LOOP:                     @ Loop procura pela primeira posicao livre e armazena o novo alarme
         ldr r5, =MAX_ALARMS
+
 		cmp r2, r5
 		bge ALARM_FIM_LOOP
 
-		ldr r5, [r4] 		       @ FLAG_ALARMS[n*4]
+		ldr r5, [r4]   		        @ FLAG_ALARMS[indice * 4]
 		cmp r5, #0
-		bne POS_CHEIA
+		bne POS_CHEIA               @ Caso posicao atual seja diferente de zero, ignora
+                                    @    posicao atual nao vazia e atualiza os indices
 
-		@ encontrada posicao livre, preenchendo os vetores
 		mov r5, #1
-		str r5, [r4] 		       @ FLAG_ALARMS[n*4] <- 1
-		str r0, [r6] 		       @ FUNC_ALARMS[n*4] <- r0
-		str r1, [r3] 		       @ TIME_ALARMS[n*4] <- r1
+		str r5, [r4] 		        @ FLAG_ALARMS[indice * 4] recebe contehudo de 1
+		str r0, [r6] 		        @ FUNC_ALARMS[indice * 4] recebe contehudo de r0
+		str r1, [r3] 		        @ TIME_ALARMS[indice * 4] recebe contehudo de r1
 		b ALARM_FIM_LOOP
 
 		POS_CHEIA:
     		add r3, r3, #4
     		add r4, r4, #4
     		add r6, r6, #4
-    		add r2, r2, #1
+    		add r2, r2, #1          @ Atualiza os indices
+
     		b ALARM_LOOP
 
     ALARM_FIM_LOOP:
-        mov r0, #0                 @ Indica que nenhum erro ocorreu
+        mov r0, #0              @ Indica que nenhum erro ocorreu
 
 	SET_ALARM_EXIT:
-        pop {r1-r6, lr}
-        mov pc, lr
+        pop {r1-r6, pc}
 
 RUN_ALARM:
-	push {r0-r6, lr}
+	push {r0-r1, r4-r10, lr}
 
-	ldr r0, =TIME_ALARMS
-	ldr r1, =FUNC_ALARMS
-	ldr r2, =FLAG_ALARMS
-	mov r3, #0
-	ldr r4, =CONTADOR
-	ldr r4, [r4] @ r4 <- tempo do sistema
+    mov r4, #0
+
+    ldr r5, =CONTADOR
+	ldr r5, [r5]                    @ Registrador r4 recebe o tempo atual do sistema
+
+	ldr r8, =TIME_ALARMS
+	ldr r9, =FUNC_ALARMS
+	ldr r10, =FLAG_ALARMS           @ Base dos vetores
 
 	RUN_ALARM_LOOP:
-        ldr r5, =MAX_ALARMS
-		cmp r3, r5
+        ldr r0, =MAX_ALARMS
+
+		cmp r4, r0
 		bge FIM_RUN_LOOP
 
-		ldr r5, [r0, r3, lsl #2]    @ r5 <- TIME_ALARMS[n*4]
-		cmp r5, r4
-		bne TEMPO_DIFERENTE
+        mrs r0, cpsr                @ Salva o estado atual do registrador CPSR
+        mrs r1, spsr                @ Salva o estado atual do registrador SPSR
 
-		@ r4 == r5 : ativar o alarme n
-		mov r5, #0
-		ldr r6, [r1, r3, lsl #2]    @ r6 <- endereco da funcao
-		str r5, [r2, r3, lsl #2]    @ FLAG_ALARMS[n*4] <- LIVRE
-		str r5, [r1, r3, lsl #2]    @ FUNC_ALARMS[n*4] <- LIVRE
-		str r5, [r0, r3, lsl #2]    @ TIME_ALARMS[n*4] <- LIVRE
+        push {r0, r1}
 
-        @ Atualiza numero de alarmes ativos
-        ldr r5, =NUM_ALARMS
-        ldr r7, [r5]
-        sub r7, r7, #1
-        str r7, [r5]
+		ldr r0, [r8, r4, lsl #2]    @ Registrador r5 recebe TIME_ALARMS[indice * 4]
 
-		@ executando r6 em modo IRQ com interrupcoes
-		msr CPSR_c, #0x10
+		cmp r0, r5
+		bne TEMPO_DIFERENTE         @ Caso tempo do alarme atual seja maior do que o do sistema
+                                    @   ignora posicao atual e atualiza o indice para o proximo
+
+		mov r0, #0
+        str r0, [r8,r4,lsl #2]      @ Posicao do vetor TIME_ALARMS[indice * 4] livre
+		ldr r6, [r9,r4,lsl #2]      @ Registrador r6 recebe endereco da funcao
+		str r0, [r9,r4,lsl #2]      @ Posicao do vetor FUNC_ALARMS[indice * 4] livre
+        str r0, [r10,r4,lsl #2]     @ Posicao do vetor FLAG_ALARMS[indice * 4] livre
+
+        ldr r0, =NUM_ALARMS
+        ldr r7, [r0]                @ Carrega em r7 quantidade atual de alarmes ativos
+        sub r7, r7, #1              @ Removendo o alarme que serha executado logo em seguida
+        str r7, [r0]                @ Atualiza nhumero de alarmes ativos
+
+		msr cpsr_c, #0x10           @ Muda para o modo usuario com interrupcoes
 		blx r6
 
-        mov r7, #1                  @ Chama syscall para retornar ao modo irq
+        mov r7, #1                  @ Chama syscall para retornar ao modo irq com interrupcoes
         svc 0x0
 
 		TEMPO_DIFERENTE:
-    		add r3, r3, #1
+            pop {r0, r1}
+
+            msr cpsr, r0            @ Restaura estado do registrador CPSR
+            msr spsr, r1            @ Restaura estado do registrador SPSR
+
+    		add r4, r4, #1          @ Atualiza o indice
+
     		b RUN_ALARM_LOOP
 
 	FIM_RUN_LOOP:
-    	pop {r0-r6, lr}
-    	mov pc, lr
+    	pop {r0-r1, r4-r10, pc}
 
 RUN_CALLBACK:
-    push {r0-r7, lr}
+    push {r0-r1, r4-r7, lr}
 
-    ldr r4, =MAX_CALLBACKS
     ldr r5, =VEC_CALLBACK           @ Base do vetor de callback
+    ldr r4, =MAX_CALLBACKS          @ Nhumero maximo de posicoes do vetor a se analizar
 
     RUN_CALLBACK_LOOP:
         cmp r4, #0
         ble END_RUN_CALLBACK
 
-        mrs r0, cpsr
-        mrs r1, SPSR
+        mrs r0, cpsr                @ Salva o estado atual do registrador CPSR
+        mrs r1, spsr                @ Salva o estado atual do registrador SPSR
+
         push {r0, r1}
 
         ldr r0, [r5]                @ Le o id do sonar
@@ -579,59 +591,67 @@ RUN_CALLBACK:
         bl READ_SONAR
         ldr r1, [r5, #4]            @ Le o limiar para esse sonar
 
-        cmp r0, r1                  @ Verifica o sonar atingiu seu limiar de distancia
+        cmp r0, r1                  @ Verifica se o sonar atingiu seu limiar de distancia
         bge ATUALIZA_INDICES_CALLBACK
 
-        ldr r2, [r5, #8]            @ Carrega em r2 o endereco da funcao
+        ldr r6, [r5, #8]            @ Caso tenha atingido, carrega em r2 o endereco da funcao
         mov r0, #-1
-        str r0, [r5]                @ Desativa callback
+        str r0, [r5]                @ E desativa callback, setando vec_callback[indice][0] = -1
 
         ldr r0, =NUM_CALLBACKS
-        ldr r7, [r0]
-        sub r7, r7, #1
+        ldr r7, [r0]                @ Carrega em r7 quantidade atual de callbacks ativas
+        sub r7, r7, #1              @ Removendo a callback que serha executada logo em seguida
         str r7, [r0]                @ Atualiza a quantidade de callbacks ativas
 
-        msr CPSR_c, #0x10           @ Muda modo para usuario sem interrupcoes
-        blx r2                      @ E salta para o endereco da respectiva funcao
+        msr cpsr_c, #0x10           @ Muda modo para usuario com interrupcoes
+        blx r6                      @ E salta para o endereco da respectiva funcao
 
-        mov r7, #2                  @ Chama syscall para retornar ao modo irq
+        mov r7, #2                  @ Chama syscall para retornar ao modo irq com interrupcoes
         svc 0x0
 
         ATUALIZA_INDICES_CALLBACK:
             pop {r0, r1}
 
-            msr CPSR, r0
-            msr SPSR, r1
+            msr cpsr, r0            @ Restaura estado anterior do registrador CPSR
+            msr spsr, r1            @ Restaura estado anterior do registrador SPSR
 
             sub r4, r4, #1
-            add r5, r5, #12
+            add r5, r5, #12         @ Atualiza o indice
 
         b RUN_CALLBACK_LOOP
 
     END_RUN_CALLBACK:
-        pop {r0-r7, lr}
-        mov pc, lr
+        pop {r0-r1, r4-r7, pc}
 
 @ Secao de dados
 
 .data
     .align 4
 
-    CONTADOR: .space 4
-    CONTADOR_CALLBACK: .space 4
+    CONTADOR:
+        .space 4
+    CONTADOR_CALLBACK:
+        .space 4
 
-    NUM_ALARMS: .space 4            @ Numero de alarmes ativos (inicialmente 0). Suporta athe 13 alarmes
-	FLAG_ALARMS: .space 52			@ flag_alarms[i] informa a existencia de um alarme
-    TIME_ALARMS: .space 52      	@ time_alarms[i] contem o tempo que o alarme deve ser ativado
-    FUNC_ALARMS: .space 52			@ func_alarms[i] contem o endereco da funcao associada ao alarme
+    NUM_ALARMS:                     @ Numero de alarmes ativos (inicialmente 0). Suporta athe 13 alarmes
+         .space 4
+	FLAG_ALARMS:           			@ Flag_alarms[i] informa a existencia de um alarme
+         .space 52
+    TIME_ALARMS:                  	@ Time_alarms[i] contem o tempo que o alarme deve ser ativado
+         .space 52
+    FUNC_ALARMS:        			@ Func_alarms[i] contem o endereco da funcao associada ao alarme
+         .space 52
 
-    NUM_CALLBACKS: .space 4         @ Numero de callbacks ativas (inicialmente 0). Suporta athe 13 callbacks
-    VEC_CALLBACK: .space 156        @ vec_callback[i][0] <- id do sonar, -1 para linha i vazia
-                                    @ vec_callback[i][1] <- limiar de distancia
-                                    @ vec_callback[i][2] <- ponteiro para funcao a ser chamada
+    NUM_CALLBACKS:                  @ Numero de callbacks ativas (inicialmente 0). Suporta athe 13 callbacks
+         .space 4
+    VEC_CALLBACK:                   @ Vec_callback[i][0] <- id do sonar, -1 para linha i vazia
+         .space 156                 @ Vec_callback[i][1] <- limiar de distancia
+                                    @ Vec_callback[i][2] <- ponteiro para funcao a ser chamada
 
-    .space 500
-    INICIO_PILHA_SVC:   .space 500
-    INICIO_PILHA_IRQ:   .space 500
-    INICIO_PILHA_FIQ:   .space 500
-    INICIO_PILHA_USER:  .space 1
+    .space 512
+        INICIO_PILHA_SVC:
+    .space 512
+        INICIO_PILHA_IRQ:
+    .space 512
+        INICIO_PILHA_USER:
+    .space 1
