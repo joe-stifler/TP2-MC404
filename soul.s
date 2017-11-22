@@ -1,7 +1,7 @@
 
 @ Secao de constantes
 
-@ Constante para os ciclos do relogio de perifeİricos
+@ Constante para os ciclos do relogio de perifericos
 .set TIME_SZ,                       0x000000C8
 
 @ Constante para o intervalo entre as verificacoes do estado dos sonares
@@ -15,19 +15,19 @@
 .set MAX_CALLBACKS,                 0x00000008
 
 @ Constantes para os enderecos do TZIC
-.set TZIC_BASE,		                0x0FFFC000
-.set TZIC_INTCTRL,	                0x00000000
-.set TZIC_INTSEC1,	                0x00000084
-.set TZIC_ENSET1,	                0x00000104
-.set TZIC_PRIOMASK,	                0x0000000C
+.set TZIC_BASE,                     0x0FFFC000
+.set TZIC_INTCTRL,                  0x00000000
+.set TZIC_INTSEC1,                  0x00000084
+.set TZIC_ENSET1,                   0x00000104
+.set TZIC_PRIOMASK,                 0x0000000C
 .set TZIC_PRIORITY9,                0x00000424
 
 @ Constantes para os enderecos do GPT
-.set GPT_CR,		                0x53FA0000
-.set GPT_PR,		                0x53FA0004
-.set GPT_SR,		                0x53FA0008
-.set GPT_IR,		                0x53FA000C
-.set GPT_OCR1,		                0x53FA0010
+.set GPT_CR,                        0x53FA0000
+.set GPT_PR,                        0x53FA0004
+.set GPT_SR,                        0x53FA0008
+.set GPT_IR,                        0x53FA000C
+.set GPT_OCR1,                      0x53FA0010
 
 @ Constantes para os enderecos do GPIO
 .set GPIO_DR,                       0x53F84000
