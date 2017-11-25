@@ -234,7 +234,7 @@ SVC_HANDLER:
 MUDA_MODO1:
     ldr r1, =TEMPO_DIFERENTE
     cmp r7, r1
-    msreq cpsr_c, #0x12             @ Volta pro modo irq com interrupcoes
+    msreq cpsr_c, #0x92             @ Volta pro modo irq sem interrupcoes
     beq TEMPO_DIFERENTE
 
     mov pc, lr
@@ -443,16 +443,25 @@ GET_TIME:
     mov pc, lr
 
 SET_TIME:
-    push {r1}
+    push {r1, lr}
 
     ldr r1, =CONTADOR
     str r0, [r1]
+    bl UPDATE_ALARMS
 
-    pop {r1}
+    pop {r1, lr}
     mov pc, lr
 
 SET_ALARM:
     push {r1-r6, lr}
+    
+    ldr r3, =MAX_ALARMS
+    ldr r4, =NUM_ALARMS
+    ldr r2, [r4]                    @ Coloca em r2 a quantidade de alarmes atualmente ativos
+
+    cmp r2, r3
+    movge r0, #-1                   @ Caso nhumero mhaximo de alarmes ativos jah foi
+    bge SET_ALARM_EXIT              @   atingido, seta -1 em r0 e retorna da syscall
 
     mov r4, r0					    @ Copia do endereco da funcao
     bl GET_TIME 				    @ Registrador r0 recebe tempo do sistema
@@ -463,16 +472,9 @@ SET_ALARM:
 
     mov r0, r4                      @ Coloca em r0 o endereco da funcao passada por parametro
 
-    ldr r3, =MAX_ALARMS
-    ldr r4, =NUM_ALARMS
-    ldr r2, [r4]                    @ Coloca em r2 a quantidade de alarmes atualmente ativos
-
-    cmp r2, r3
-    movge r0, #-1                   @ Caso nhumero mhaximo de alarmes ativos jah foi
-    bge SET_ALARM_EXIT              @   atingido, seta -1 em r0 e retorna da syscall
-
+	ldr r3, =NUM_ALARMS
     add r2, r2, #1
-    str r2, [r4]				    @ Incrementa nhumero de alarmes ativos atualmente
+    str r2, [r3]				    @ Incrementa nhumero de alarmes ativos atualmente
 
     ldr r3, =TIME_ALARMS
     ldr r4, =FLAG_ALARMS
@@ -622,6 +624,48 @@ RUN_CALLBACK:
 
     END_RUN_CALLBACK:
         pop {r0-r1, r4-r7, pc}
+        
+        
+UPDATE_ALARMS:
+
+	push {r4-r10}
+	@ r0 <- novo tempo do sistema
+	
+	ldr r4, =FUNC_ALARMS
+	ldr r5, =TIME_ALARMS
+	ldr r6, =FLAG_ALARMS
+	mov r7, #0
+	ldr r8, =MAX_ALARMS				@ r8 <- MAX_ALARMS					
+	
+	UPDATE_ALARMS_LOOP:
+		cmp r7, r8
+		bhs UPDATE_ALARMS_END
+		
+		ldr r9, [r5]				@ r9 <- TIME_ALARMS[n*4]
+		cmp r9, r0					@ r9 <= r0 : alarm deve ser removido
+		bhi	UPDATE_ALARMS_CONTINUE
+		
+		mov r9, #0
+		str r9, [r4]				@ FUNC_ALARMS[n*4] <- 0 (LIVRE)
+		str r9, [r5]				@ TIME_ALARMS[n*4] <- 0 (LIVRE)
+		str r9, [r6]				@ FLAG_ALARMS[n*4] <- 0 (LIVRE)
+		
+		ldr r9, =NUM_ALARMS
+		ldr r10, [r9]				@ r10 <- numero de alarmes
+		sub r10, r10, #1
+		str r10, [r9]				@ NUM_ALARMS--
+		
+		UPDATE_ALARMS_CONTINUE:
+		add r7, r7, #1
+		add r4, r4, #4
+		add r5, r5, #4
+		add r6, r6, #4
+		b UPDATE_ALARMS_LOOP
+		
+	UPDATE_ALARMS_END:
+	
+	pop {r4-r10}
+	mov pc, lr
 
 @ Secao de dados
 
