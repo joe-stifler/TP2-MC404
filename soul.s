@@ -41,13 +41,21 @@ _start:
 INTERRUPT_VECTOR:
     .org 0x0                        @ Reset
         b RESET_HANDLER
+    .org 0x4                        @ Undefined Instruction (instrucao invalida foi encontrada)
+        b UNINPLEMENTED_HANDLER
     .org 0x08                       @ Software interrupt
         b SVC_HANDLER
+    .org 0x0C                       @ Abort (barramento gerou um erro)
+        b UNINPLEMENTED_HANDLER
     .org 0x18                       @ IRQ interrupt
         b IRQ_HANDLER
 
 .org 0x100
 .text
+
+UNINPLEMENTED_HANDLER:              @ Quando ocorrer uma interrupcao
+    b RESET_HANDLER                 @   inesperada reseta o estado da maquina
+
 
 RESET_HANDLER:
     ldr r1, =CONTADOR
@@ -150,7 +158,7 @@ SET_GPIO:
 
 IRQ_HANDLER:
     sub	lr, lr, #4                  @ Recupera valor correto de pc
-    push {r0-r10, lr}
+    push {r0-r12, lr}
 
     mrs r4, spsr                    @ Salva o estado atual do registrador SPSR
     push {r4}
@@ -181,7 +189,7 @@ IRQ_HANDLER:
         pop {r4}
         msr spsr, r4                @ Restaura estado anterior do registrador SPSR
 
-        pop {r0-r10, lr}
+        pop {r0-r12, lr}
         movs pc, lr                 @ retorna ao estado antigo
 
 SVC_HANDLER:
@@ -193,59 +201,59 @@ SVC_HANDLER:
     moveq r7, lr
     bleq MUDA_MODO2
 
-    push {r4}                       @ Armazena registrador r4 na pilha de forma a nao danifica-lo
+    push {r4, lr}
     mrs r4, spsr                    @ Salva o estado atual do registrador SPSR
     push {r4}
 
     cmp r7, #16
-    moveq r7, lr
     bleq READ_SONAR
 
     cmp r7, #17
-    moveq r7, lr
     bleq REGISTER_PROXIMITY_CALLBACK
 
     cmp r7, #18
-    moveq r7, lr
     bleq SET_MOTOR_SPEED
 
     cmp r7, #19
-    moveq r7, lr
     bleq SET_MOTORS_SPEED
 
     cmp r7, #20
-    moveq r7, lr
     bleq GET_TIME
 
     cmp r7, #21
-    moveq r7, lr
     bleq SET_TIME
 
     cmp r7, #22
-    moveq r7, lr
     bleq SET_ALARM
 
     pop {r4}
     msr spsr, r4                    @ Restaura estado anterior do registrador SPSR
-    pop {r4}                        @ Remove r4 da pilha, armazenado anteriormente
 
-    movs pc, r7                     @ Retorna ao modo anterior a chamada da syscall
+    pop {r4, lr}
+    movs pc, lr                     @ Retorna ao modo anterior a chamada da syscall
 
 MUDA_MODO1:
     ldr r1, =TEMPO_DIFERENTE
     cmp r7, r1
-    msreq cpsr_c, #0x92             @ Volta pro modo irq sem interrupcoes
+    msreq cpsr_c, #0xD2             @ Volta pro modo irq sem interrupcoes
     beq TEMPO_DIFERENTE
 
-    mov pc, lr
+    push {lr}
+    mov lr, r7
+    mov r7, #1
+    pop {pc}
 
 MUDA_MODO2:
     ldr r1, =ATUALIZA_INDICES_CALLBACK
     cmp r7, r1
-    msreq cpsr_c, #0x12             @ Volta pro modo irq com interrupcoes
+    msreq cpsr_c, #0xD2             @ Volta pro modo irq sem interrupcoes
     beq ATUALIZA_INDICES_CALLBACK
 
-    mov pc, lr
+    push {lr}
+    mov lr, r7
+    mov r7, #2
+    pop {pc}
+
 
 READ_SONAR:
     push {r1, r2, r3, r4}
@@ -315,6 +323,11 @@ READ_SONAR:
 REGISTER_PROXIMITY_CALLBACK:
     push {r3-r5}
 
+    mrs r4, cpsr
+    orr r4, r4, #0xC0               @ Desabilita interrupcoes (IRQ e FIQ)
+                                    @   durante a insercao de um novo callback
+    msr cpsr_c, r4
+
     ldr r3, =MAX_CALLBACKS
     ldr r4, =NUM_CALLBACKS
     ldr r5, [r4]
@@ -354,6 +367,10 @@ REGISTER_PROXIMITY_CALLBACK:
         b REGISTER_CALLBACK_LOOP
 
     END_REGISTER_CALLBACK:
+        mrs r4, cpsr                @ Reativa interrupcoes (IRQ e FIQ)
+        bic r4, r4, #0xC0           @   setando seus respectivos bits para 0
+        msr cpsr_c, r4
+
         pop {r3-r5}
         mov pc, lr
 
@@ -443,18 +460,32 @@ GET_TIME:
     mov pc, lr
 
 SET_TIME:
-    push {r1, lr}
+    push {r1, r4, lr}
+
+    mrs r4, cpsr
+    orr r4, r4, #0xC0               @ Desabilita interrupcoes (IRQ e FIQ)
+                                    @   durante a mudanca do relogio do sistema
+    msr cpsr_c, r4
 
     ldr r1, =CONTADOR
     str r0, [r1]
-    bl UPDATE_ALARMS
 
-    pop {r1, lr}
-    mov pc, lr
+    bl UPDATE_ALARMS                @ Remove alarmes com um tempo menor do que o atual do sistema
+
+    mrs r4, cpsr                    @ Reativa interrupcoes (IRQ e FIQ)
+    bic r4, r4, #0xC0               @   setando seus respectivos bits para 0
+    msr cpsr_c, r4
+
+    pop {r1, r4, pc}
 
 SET_ALARM:
     push {r1-r6, lr}
-    
+
+    mrs r4, cpsr
+    orr r4, r4, #0xC0               @ Desabilita interrupcoes (IRQ e FIQ)
+                                    @   durante a insercao de um novo alarme
+    msr cpsr_c, r4
+
     ldr r3, =MAX_ALARMS
     ldr r4, =NUM_ALARMS
     ldr r2, [r4]                    @ Coloca em r2 a quantidade de alarmes atualmente ativos
@@ -510,6 +541,10 @@ SET_ALARM:
         mov r0, #0              @ Indica que nenhum erro ocorreu
 
 	SET_ALARM_EXIT:
+        mrs r4, cpsr            @ Reativa interrupcoes (IRQ e FIQ)
+        bic r4, r4, #0xC0       @   setando seus respectivos bits para 0
+        msr cpsr_c, r4
+
         pop {r1-r6, pc}
 
 RUN_ALARM:
@@ -518,7 +553,7 @@ RUN_ALARM:
     mov r4, #0
 
     ldr r5, =CONTADOR
-	ldr r5, [r5]                    @ Registrador r4 recebe o tempo atual do sistema
+	ldr r5, [r5]                    @ Registrador r5 recebe o tempo atual do sistema
 
 	ldr r8, =TIME_ALARMS
 	ldr r9, =FUNC_ALARMS
@@ -624,48 +659,47 @@ RUN_CALLBACK:
 
     END_RUN_CALLBACK:
         pop {r0-r1, r4-r7, pc}
-        
-        
-UPDATE_ALARMS:
 
-	push {r4-r10}
-	@ r0 <- novo tempo do sistema
-	
+
+UPDATE_ALARMS:                      @ Recebe por parametro em r0 o tempo atual do sistema,
+    push {r4-r10}                   @   e remove todos os alarmes com um tempo menor do que tal valor
+
 	ldr r4, =FUNC_ALARMS
 	ldr r5, =TIME_ALARMS
 	ldr r6, =FLAG_ALARMS
 	mov r7, #0
-	ldr r8, =MAX_ALARMS				@ r8 <- MAX_ALARMS					
-	
+	ldr r8, =MAX_ALARMS				@ Registrador r8 recebe quantidade maxima de
+                                    @   alarmes que podem ser aramazenados simultaneamente
+
 	UPDATE_ALARMS_LOOP:
 		cmp r7, r8
 		bhs UPDATE_ALARMS_END
-		
-		ldr r9, [r5]				@ r9 <- TIME_ALARMS[n*4]
-		cmp r9, r0					@ r9 <= r0 : alarm deve ser removido
+
+		ldr r9, [r5]				@ Registrador r9 recebe TIME_ALARMS[indice * 4] (tempo do alarme)
+		cmp r9, r0					@  e verifica se o alarme na posicao indice * 4 deve ser removido
 		bhi	UPDATE_ALARMS_CONTINUE
-		
+
 		mov r9, #0
-		str r9, [r4]				@ FUNC_ALARMS[n*4] <- 0 (LIVRE)
-		str r9, [r5]				@ TIME_ALARMS[n*4] <- 0 (LIVRE)
-		str r9, [r6]				@ FLAG_ALARMS[n*4] <- 0 (LIVRE)
-		
+		str r9, [r4]				@ Posicao do vetor FUNC_ALARMS[indice * 4] livre
+		str r9, [r5]				@ Posicao do vetor TIME_ALARMS[indice * 4] livre
+		str r9, [r6]				@ Posicao do vetor FLAG_ALARMS[indice * 4] livre
+
 		ldr r9, =NUM_ALARMS
-		ldr r10, [r9]				@ r10 <- numero de alarmes
-		sub r10, r10, #1
-		str r10, [r9]				@ NUM_ALARMS--
-		
+		ldr r10, [r9]				@ Carrega em r10 quantidade atual de alarmes ativos
+		sub r10, r10, #1            @ Removendo o alarme que serha executado logo em seguida
+		str r10, [r9]               @ Atualiza nhumero de alarmes ativos
+
 		UPDATE_ALARMS_CONTINUE:
-		add r7, r7, #1
-		add r4, r4, #4
-		add r5, r5, #4
-		add r6, r6, #4
+    		add r7, r7, #1
+    		add r4, r4, #4
+    		add r5, r5, #4
+    		add r6, r6, #4          @ Atualiza por fim os indices
+
 		b UPDATE_ALARMS_LOOP
-		
+
 	UPDATE_ALARMS_END:
-	
-	pop {r4-r10}
-	mov pc, lr
+    	pop {r4-r10}
+    	mov pc, lr
 
 @ Secao de dados
 
@@ -692,10 +726,10 @@ UPDATE_ALARMS:
          .space 156                 @ Vec_callback[i][1] <- limiar de distancia
                                     @ Vec_callback[i][2] <- ponteiro para funcao a ser chamada
 
-    .space 512
+    .space 2048
         INICIO_PILHA_SVC:
-    .space 512
+    .space 2048
         INICIO_PILHA_IRQ:
-    .space 512
+    .space 2048
         INICIO_PILHA_USER:
     .space 1

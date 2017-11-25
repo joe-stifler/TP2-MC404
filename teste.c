@@ -1,6 +1,6 @@
 #include "api_robot2.h"
 
-#define LIMIAR 800
+#define LIMIAR 4000
 // #define LIMIAR2 400
 
 void setMot0();
@@ -25,7 +25,7 @@ void setMot0() {
     mot1.speed = 0;
 
     mot2.id = 1;
-    mot2.speed = 10;
+    mot2.speed = 63;
 
     set_motors_speed(&mot1, &mot2);
 
@@ -41,7 +41,7 @@ void setMot1() {
     motor_cfg_t mot2;
 
     mot1.id = 0;
-    mot1.speed = 10;
+    mot1.speed = 63;
 
     mot2.id = 1;
     mot2.speed = 0;
@@ -60,10 +60,10 @@ void setMot2() {
     motor_cfg_t mot2;
 
     mot1.id = 0;
-    mot1.speed = 40;
+    mot1.speed = 63;
 
     mot2.id = 1;
-    mot2.speed = 40;
+    mot2.speed = 63;
 
     set_motors_speed(&mot1, &mot2);
 }

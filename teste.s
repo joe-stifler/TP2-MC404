@@ -22,11 +22,11 @@ _start:
 	str	r0, [fp, #-8]
 	str	r1, [fp, #-12]
 	mov	r0, #3
-	mov	r1, #800
+	mov	r1, #4000
 	ldr	r2, .L3
 	bl	register_proximity_callback
 	mov	r0, #4
-	mov	r1, #800
+	mov	r1, #4000
 	ldr	r2, .L3+4
 	bl	register_proximity_callback
 	bl	setMot2
@@ -55,7 +55,7 @@ setMot0:
 	strb	r3, [fp, #-7]
 	mov	r3, #1
 	strb	r3, [fp, #-12]
-	mov	r3, #10
+	mov	r3, #63
 	strb	r3, [fp, #-11]
 	sub	r2, fp, #8
 	sub	r3, fp, #12
@@ -72,7 +72,7 @@ setMot0:
 	bls	.L6
 	bl	setMot2
 	mov	r0, #3
-	mov	r1, #800
+	mov	r1, #4000
 	ldr	r2, .L8+4
 	bl	register_proximity_callback
 	sub	sp, fp, #4
@@ -80,7 +80,7 @@ setMot0:
 .L9:
 	.align	2
 .L8:
-	.word	799
+	.word	3999
 	.word	setMot0
 	.size	setMot0, .-setMot0
 	.align	2
@@ -94,7 +94,7 @@ setMot1:
 	sub	sp, sp, #8
 	mov	r3, #0
 	strb	r3, [fp, #-8]
-	mov	r3, #10
+	mov	r3, #63
 	strb	r3, [fp, #-7]
 	mov	r3, #1
 	strb	r3, [fp, #-12]
@@ -115,7 +115,7 @@ setMot1:
 	bls	.L11
 	bl	setMot2
 	mov	r0, #4
-	mov	r1, #800
+	mov	r1, #4000
 	ldr	r2, .L13+4
 	bl	register_proximity_callback
 	sub	sp, fp, #4
@@ -123,7 +123,7 @@ setMot1:
 .L14:
 	.align	2
 .L13:
-	.word	799
+	.word	3999
 	.word	setMot1
 	.size	setMot1, .-setMot1
 	.align	2
@@ -137,11 +137,11 @@ setMot2:
 	sub	sp, sp, #8
 	mov	r3, #0
 	strb	r3, [fp, #-8]
-	mov	r3, #40
+	mov	r3, #63
 	strb	r3, [fp, #-7]
 	mov	r3, #1
 	strb	r3, [fp, #-12]
-	mov	r3, #40
+	mov	r3, #63
 	strb	r3, [fp, #-11]
 	sub	r2, fp, #8
 	sub	r3, fp, #12
