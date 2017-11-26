@@ -53,10 +53,17 @@ INTERRUPT_VECTOR:
 .org 0x100
 .text
 
-UNINPLEMENTED_HANDLER:              @ Quando ocorrer uma interrupcao
-    b RESET_HANDLER                 @   inesperada reseta o estado da maquina
+@@
+@ Chamado quando ocorrer uma interrupcao inesperada. Neste caso, reseta o estado da maquina.
+@@
+UNINPLEMENTED_HANDLER:
+    b RESET_HANDLER
 
-
+@@
+@ Inicializa variaveis, o inicio da pilha dos modos utilizados (SVC, IRQ, USER) e realiza
+@   as configuracoes das interrupcoes, relogio do sistema,alem da entrada e saida. Aphos,
+@   realiza um salto para o inicio do programa do usuario.
+@@
 RESET_HANDLER:
     ldr r1, =CONTADOR
     mov r0, #0
@@ -103,6 +110,9 @@ RESET_HANDLER:
         b laco                      @ Apos termino de execucao do codigo do usuario,
                                     @   entra em laco infinito e espera por uma interrupcao
 
+@@
+@ Configura as interrupcoes do sistema.
+@@
 SET_TZIC:
     ldr r1, =TZIC_BASE              @ Liga o controlador de interrupcoes
 
@@ -126,6 +136,9 @@ SET_TZIC:
 
     mov pc, lr
 
+@@
+@ Configura o relogio do sistema.
+@@
 SET_GPT:
     ldr r1, =GPT_CR
     mov r0, #0x41                   @ Inicializo o control register com 0x41
@@ -145,6 +158,9 @@ SET_GPT:
 
     mov pc, lr
 
+@@
+@ Configura a entrada e saida do sistema.
+@@
 SET_GPIO:
     ldr r0, =0xFFFC003E             @ Move a mascara responsavel por setar a
     ldr r1, =GPIO_GDIR              @   entrada ou saida para o registrador GDIR
@@ -156,9 +172,14 @@ SET_GPIO:
 
     mov pc, lr
 
+@@
+@ Trata as interrupcoes, no caso geradas pela relogio do sistema. Aproveita e verifica
+@   a existencia de algum alarme que necessita ser ativado no exato periodo de tempo.
+@   verifica tambem o estado das callbacks.
+@@
 IRQ_HANDLER:
     sub	lr, lr, #4                  @ Recupera valor correto de pc
-    push {r0-r12, lr}
+    push {r0-r12, lr}               @ Salva o contexto atual de forma a nao corrompe-lo
 
     mrs r4, spsr                    @ Salva o estado atual do registrador SPSR
     push {r4}
@@ -192,6 +213,9 @@ IRQ_HANDLER:
         pop {r0-r12, lr}
         movs pc, lr                 @ retorna ao estado antigo
 
+@@
+@ Trata as interrupcoes de software, ignorando syscalls nao esperadas pelo sistema.
+@@
 SVC_HANDLER:
     cmp r7, #1                      @ Verifica chamada de syscall do pelo proprio S.O. (run_alarm)
     moveq r7, lr
@@ -232,29 +256,43 @@ SVC_HANDLER:
     pop {r4, lr}
     movs pc, lr                     @ Retorna ao modo anterior a chamada da syscall
 
+@@
+@ Chaveia para o modo IRQ sem interrupcoes somente se o run_alarm chamou tal syscall. Do contrario, ignora chamada.
+@@
 MUDA_MODO1:
     ldr r1, =TEMPO_DIFERENTE
     cmp r7, r1
     msreq cpsr_c, #0xD2             @ Volta pro modo irq sem interrupcoes
-    beq TEMPO_DIFERENTE
+    beq TEMPO_DIFERENTE             @ E continua no loop do alarme
 
     push {lr}
     mov lr, r7
     mov r7, #1
     pop {pc}
 
+@@
+@ Chaveia para o modo IRQ sem interrupcoes somente se o run_callback chamou tal syscall. Do contrario, ignora chamada.
+@@
 MUDA_MODO2:
     ldr r1, =ATUALIZA_INDICES_CALLBACK
     cmp r7, r1
     msreq cpsr_c, #0xD2             @ Volta pro modo irq sem interrupcoes
-    beq ATUALIZA_INDICES_CALLBACK
+    beq ATUALIZA_INDICES_CALLBACK   @ E continua no loop do callback
 
     push {lr}
     mov lr, r7
     mov r7, #2
     pop {pc}
 
-
+@@
+@ Realiza a leitura de um dado sonar.
+@
+@ Parametros:
+@     r0: identificador do sonar (0 a 15 somente)
+@ Retorno:
+@     r0: valor obtido na leitura dos sonares;
+@         -1 caso id do sonar seja invalido
+@@
 READ_SONAR:
     push {r1, r2, r3, r4}
 
@@ -320,6 +358,18 @@ READ_SONAR:
         pop {r1, r2, r3, r4}
         mov pc, lr                  @ Recupera estado de pc
 
+@@
+@ Armazena um callback no vetor de callbacks para ser inspecionada a uma certa taxa de tempo.
+@
+@ Parametros:
+@     r0: identificador do sonar (0 a 15 somente)
+@     r1: limiar de distancia
+@     r2: ponteiro da funcao a ser chamada na ocorrencia do evento
+@ Retorno:
+@     r0: -1 caso nhumero maximo de callbacks jah atingido;
+@         -2 caso id do sonar invalido;
+@          0 do contrario.
+@@
 REGISTER_PROXIMITY_CALLBACK:
     push {r3-r5}
 
@@ -374,6 +424,17 @@ REGISTER_PROXIMITY_CALLBACK:
         pop {r3-r5}
         mov pc, lr
 
+@@
+@ Seta a velocidade de um dado motor.
+@
+@ Parametros:
+@     r0: identificador do motor (0 a 15 somente)
+@     r1: velocidade do motor
+@ Retorno:
+@     r0: -1 caso id do motor invalido;
+@         -2 caso velocidade invalida;
+@          0 do contrario.
+@@
 SET_MOTOR_SPEED:
     push {r2}
 
@@ -425,6 +486,17 @@ SET_MOTOR_SPEED:
         pop {r2}
         mov pc, lr
 
+@@
+@ Seta a velocidade de ambos os motores.
+@
+@ Parametros:
+@     r0: velocidade para o motor 0
+@     r1: velocidade para o motor 1
+@ Retorno:
+@     r0: -1 caso a velocidade motor0 invalida;
+@         -2 caso velocidade motor1 invalida;
+@          0 do contrario.
+@@
 SET_MOTORS_SPEED:
     cmp r0, #0
     movlt r0, #-1                   @ Caso conteudo de r0 < 0, retorna erro -1
@@ -453,12 +525,25 @@ SET_MOTORS_SPEED:
 
     mov pc, lr
 
+@@
+@ Le o estado atual do relogio do sistema
+@
+@ Retorno:
+@     r0: tempo do sistema
+@@
 GET_TIME:
     ldr r0, =CONTADOR
     ldr r0, [r0]
 
     mov pc, lr
 
+@@
+@ Seta o tempo do sistema com um dado valor passado por parametro. Alem disso, elimina
+@   todos os alarmes com um tempo menor ou igual do que o novo valor do relogio do sistema.
+@
+@ Parametros:
+@     r0: tempo do sistema
+@@
 SET_TIME:
     push {r1, r4, lr}
 
@@ -478,6 +563,17 @@ SET_TIME:
 
     pop {r1, r4, pc}
 
+@@
+@ Armazena um novo alarme no vetor de alarmes para ser inspecionado a uma certa taxa de tempo.
+@
+@ Parametros:
+@     r0: ponteiro para a funcao a ser chamada na ocorrencia do alarme
+@     r1: tempo que o alarme devera ser acionado
+@ Retorno:
+@     r0: -1 caso jah tenha atingido o nhumero maximo de alarmes;
+@         -2 caso tempo seja menor do que o tempo do sistema atual;
+@          0 do contrario.
+@@
 SET_ALARM:
     push {r1-r6, lr}
 
@@ -547,6 +643,11 @@ SET_ALARM:
 
         pop {r1-r6, pc}
 
+@@
+@ Verifica todas as posicoes do vetor de alarmes e caso alguma posicao nao vazia,
+@   esteja associada a um tempo igual ao atual do sistema, realiza um pulo com link
+@   (jah no modo usuario) para a respectiva funcao associada ao alarme.
+@@
 RUN_ALARM:
 	push {r0-r1, r4-r10, lr}
 
@@ -590,7 +691,7 @@ RUN_ALARM:
 		msr cpsr_c, #0x10           @ Muda para o modo usuario com interrupcoes
 		blx r6
 
-        mov r7, #1                  @ Chama syscall para retornar ao modo irq com interrupcoes
+        mov r7, #1                  @ Chama syscall para retornar ao modo irq sem interrupcoes
         svc 0x0
 
 		TEMPO_DIFERENTE:
@@ -606,6 +707,11 @@ RUN_ALARM:
 	FIM_RUN_LOOP:
     	pop {r0-r1, r4-r10, pc}
 
+@@
+@ Verifica todas as posicoes do vetor de callbacks e caso o a distancia detectada por um sonar,
+@   presente em uma posicao nao vazia, seja menor do que o respectivo limiar, realiza um pulo com link
+@   (jah no modo usuario) para a respectiva funcao associada ao callback.
+@@
 RUN_CALLBACK:
     push {r0-r1, r4-r7, lr}
 
@@ -660,9 +766,13 @@ RUN_CALLBACK:
     END_RUN_CALLBACK:
         pop {r0-r1, r4-r7, pc}
 
-
-UPDATE_ALARMS:                      @ Recebe por parametro em r0 o tempo atual do sistema,
-    push {r4-r10}                   @   e remove todos os alarmes com um tempo menor do que tal valor
+@@
+@ Recebe por parametro em r0 o tempo atual do sistema e remove todos os alarmes com um tempo menor do que tal valor.
+@ Parametros:
+@     r0: tempo atual do sistema
+@@
+UPDATE_ALARMS:
+    push {r4-r10}
 
 	ldr r4, =FUNC_ALARMS
 	ldr r5, =TIME_ALARMS
