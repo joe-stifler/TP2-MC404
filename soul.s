@@ -590,18 +590,18 @@ SET_ALARM:
     movge r0, #-1                   @ Caso nhumero mhaximo de alarmes ativos jah foi
     bge SET_ALARM_EXIT              @   atingido, seta -1 em r0 e retorna da syscall
 
-    mov r4, r0					    @ Copia do endereco da funcao
-    bl GET_TIME 				    @ Registrador r0 recebe tempo do sistema
+    mov r4, r0                      @ Copia do endereco da funcao
+    bl GET_TIME                     @ Registrador r0 recebe tempo do sistema
 
     cmp r0, r1
-    movhs r0, #-2				    @ Caso tempo atual do sistema seja maior ou igual do que r1
+    movhs r0, #-2                   @ Caso tempo atual do sistema seja maior ou igual do que r1
     bhs SET_ALARM_EXIT              @   nao armazena alarme, dando um pulo pro final de set_alarm
 
     mov r0, r4                      @ Coloca em r0 o endereco da funcao passada por parametro
 
 	ldr r3, =NUM_ALARMS
     add r2, r2, #1
-    str r2, [r3]				    @ Incrementa nhumero de alarmes ativos atualmente
+    str r2, [r3]                    @ Incrementa nhumero de alarmes ativos atualmente
 
     ldr r3, =TIME_ALARMS
     ldr r4, =FLAG_ALARMS
@@ -614,15 +614,15 @@ SET_ALARM:
 		cmp r2, r5
 		bge ALARM_FIM_LOOP
 
-		ldr r5, [r4]   		        @ FLAG_ALARMS[indice * 4]
+		ldr r5, [r4]                @ FLAG_ALARMS[indice * 4]
 		cmp r5, #0
 		bne POS_CHEIA               @ Caso posicao atual seja diferente de zero, ignora
                                     @    posicao atual nao vazia e atualiza os indices
 
 		mov r5, #1
-		str r5, [r4] 		        @ FLAG_ALARMS[indice * 4] recebe contehudo de 1
-		str r0, [r6] 		        @ FUNC_ALARMS[indice * 4] recebe contehudo de r0
-		str r1, [r3] 		        @ TIME_ALARMS[indice * 4] recebe contehudo de r1
+		str r5, [r4]                @ FLAG_ALARMS[indice * 4] recebe contehudo de 1
+		str r0, [r6]                @ FUNC_ALARMS[indice * 4] recebe contehudo de r0
+		str r1, [r3]                @ TIME_ALARMS[indice * 4] recebe contehudo de r1
 		b ALARM_FIM_LOOP
 
 		POS_CHEIA:
@@ -634,11 +634,11 @@ SET_ALARM:
     		b ALARM_LOOP
 
     ALARM_FIM_LOOP:
-        mov r0, #0              @ Indica que nenhum erro ocorreu
+        mov r0, #0                  @ Indica que nenhum erro ocorreu
 
 	SET_ALARM_EXIT:
-        mrs r4, cpsr            @ Reativa interrupcoes (IRQ e FIQ)
-        bic r4, r4, #0xC0       @   setando seus respectivos bits para 0
+        mrs r4, cpsr                @ Reativa interrupcoes (IRQ e FIQ)
+        bic r4, r4, #0xC0           @   setando seus respectivos bits para 0
         msr cpsr_c, r4
 
         pop {r1-r6, pc}
@@ -778,24 +778,24 @@ UPDATE_ALARMS:
 	ldr r5, =TIME_ALARMS
 	ldr r6, =FLAG_ALARMS
 	mov r7, #0
-	ldr r8, =MAX_ALARMS				@ Registrador r8 recebe quantidade maxima de
+	ldr r8, =MAX_ALARMS             @ Registrador r8 recebe quantidade maxima de
                                     @   alarmes que podem ser aramazenados simultaneamente
 
 	UPDATE_ALARMS_LOOP:
 		cmp r7, r8
 		bhs UPDATE_ALARMS_END
 
-		ldr r9, [r5]				@ Registrador r9 recebe TIME_ALARMS[indice * 4] (tempo do alarme)
-		cmp r9, r0					@  e verifica se o alarme na posicao indice * 4 deve ser removido
+		ldr r9, [r5]                @ Registrador r9 recebe TIME_ALARMS[indice * 4] (tempo do alarme)
+		cmp r9, r0                  @  e verifica se o alarme na posicao indice * 4 deve ser removido
 		bhi	UPDATE_ALARMS_CONTINUE
 
 		mov r9, #0
-		str r9, [r4]				@ Posicao do vetor FUNC_ALARMS[indice * 4] livre
-		str r9, [r5]				@ Posicao do vetor TIME_ALARMS[indice * 4] livre
-		str r9, [r6]				@ Posicao do vetor FLAG_ALARMS[indice * 4] livre
+		str r9, [r4]                @ Posicao do vetor FUNC_ALARMS[indice * 4] livre
+		str r9, [r5]                @ Posicao do vetor TIME_ALARMS[indice * 4] livre
+		str r9, [r6]                @ Posicao do vetor FLAG_ALARMS[indice * 4] livre
 
 		ldr r9, =NUM_ALARMS
-		ldr r10, [r9]				@ Carrega em r10 quantidade atual de alarmes ativos
+		ldr r10, [r9]               @ Carrega em r10 quantidade atual de alarmes ativos
 		sub r10, r10, #1            @ Removendo o alarme que serha executado logo em seguida
 		str r10, [r9]               @ Atualiza nhumero de alarmes ativos
 
@@ -823,11 +823,11 @@ UPDATE_ALARMS:
 
     NUM_ALARMS:                     @ Numero de alarmes ativos (inicialmente 0). Suporta athe 13 alarmes
          .space 4
-	FLAG_ALARMS:           			@ Flag_alarms[i] informa a existencia de um alarme
+    FLAG_ALARMS:                    @ Flag_alarms[i] informa a existencia de um alarme
          .space 52
-    TIME_ALARMS:                  	@ Time_alarms[i] contem o tempo que o alarme deve ser ativado
+    TIME_ALARMS:                    @ Time_alarms[i] contem o tempo que o alarme deve ser ativado
          .space 52
-    FUNC_ALARMS:        			@ Func_alarms[i] contem o endereco da funcao associada ao alarme
+    FUNC_ALARMS:                    @ Func_alarms[i] contem o endereco da funcao associada ao alarme
          .space 52
 
     NUM_CALLBACKS:                  @ Numero de callbacks ativas (inicialmente 0). Suporta athe 13 callbacks
